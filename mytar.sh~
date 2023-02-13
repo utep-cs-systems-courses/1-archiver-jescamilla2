@@ -1,0 +1,160 @@
+#! user/bin/env python3
+import os, sys
+
+def frame_msg(message, size):
+    '''
+    function: frame_msg()
+    Takes a string and converts to byte array with length prefixing
+    the general structure:<str len (8 bytes)> <str contents>
+    byte_array[0:8] = str len in bytes
+    byte_array[8:] = str contents
+    returns a byte-array with the encoded message
+    '''  
+    data = bytearray()
+    data += bytearray(size.to_bytes(8, 'big'))       # uses big-endian byte order
+    length = size.to_bytes(8, 'big')
+    print(f'byte size = {length}')
+    data += bytearray(message.encode())              # converts the message to bytes
+
+    return data
+
+
+def read_msg(data, num_metadata=0):
+    '''
+    function: read_msg()
+    Takes an array and extracts data where the
+    general structure is:<str len (8 bytes)> <actual string>
+    metadata:
+    (0) message
+    (1) <metadata> + message
+    (2) <metadata> + <metadata> + message
+    Essentially, metadata tells you how many 'pieces' of
+    the string there are. A filename (for instance) would
+    consist of: filename + contents
+    returns an array: [metadata, metadata, ... , message]
+    '''    
+    if len(data) == 0:
+        return ''
+    
+    msg = []
+    
+    for i in range(num_metadata+1):
+        size = int.from_bytes(data[0:8], 'big')       # get size as bytes   
+        msg[i] = data[8:8+size].decode()              # get message body as bytes
+        data = data[8+size:]                          # update data with the next slice
+
+    return msg
+
+
+def read_from_fd(fd, n=100):
+    '''
+    purpose: read n bytes (at a time) from open file descriptor, fd
+    input: 
+      fd = file descriptor
+      n = num bytes to read at a time
+    output: contents from file descriptor as byte array 
+    '''   
+    contents = bytearray()
+
+    print(f'reading from fd = {fd}')
+    while True: 
+        buf = os.read(fd, n)
+        print(f'buffer\'s contents are {buf}')
+        if not len(buf): break
+        contents += buf
+
+    print(f'contents reading from fd = {fd} are {contents}')    
+    return contents
+
+
+def c(files, ofd=1):
+    '''
+    name: c is the "create" function similar to tar's
+    input:
+      files = array of files to be archived
+      fd = file descriptor to write to. default is stdout
+    output: a single file
+    '''
+    print(f'files to print are {files}')
+    print(f'file descriptor to print to is fd = {ofd}')
+    
+    for file in files:                                        # names of files to process
+        try:
+            data = bytearray()
+            ifd = os.open(file, os.O_RDONLY)                  # open file (read-only)
+            print(f'opening file {file} with fd={ifd}')
+
+            print(f'file length is {len(file.encode())}')
+            print(f'file name is {file}')
+            
+            fmetadata = frame_msg(file, len(file.encode()))   # frame filename
+            data += fmetadata                                 # add framed metadata (filename) to byte array
+            print(f'data is now {data}')
+            
+            contents = read_from_fd(ifd, 10)                  # read 10 bytes (at a time) from open fd
+            fcontents = frame_msg(contents, len(contents))    # frame contents from input fd
+            data += fcontents                                 # add framed contents to byte array
+            print(f'adding {data} to byte array')
+
+            os.write(ofd, data)                               # send data to output fd
+            os.close(ifd)                                     # done with input file descriptor
+            print(f'closing file {file} with fd={ifd}')
+        except:
+            print('File does not exist')
+
+    os.close(ofd)                                             # close output stream
+
+
+    
+def unarch(file):
+    try:
+        arch_file = open(file, 'rb')                          # 'rb' = 'read binary'
+        data = arch_file.read()
+
+        while len(data) > 0:                                  # continue through entire file
+            fname_len = int.from_bytes(data[:8], 'big')       # len of filename
+            fname = data[8:8+fname_len]                       # actual name of file (in bytes)
+            data = data[8+fname_len:]                         # remove fname_len and fname
+
+            fcontents_len = int.from_bytes(data[:8], 'big')   # len of fcontents
+            fcontents = data[8:8+fcontents_len]               # actual file contents (in bytes)
+            data = data[8+fcontents_len:]                     # remove fcontents_len and fcontents
+
+            new_file = open(fname.decode(), 'wb')             # create new file
+            new_file.write(fcontents)                         # write the extracted file contents
+            new_file.close()
+
+            """
+            alternatively, you can just open the file 
+            with 'w' and instead decode fcontents first.
+
+            new_file = open(fname.decode(), 'w')
+            new_file.write(fcontents.decode())
+            """
+
+        arch_file.close()                                     # done with the archived file
+            
+    except FileNotFoundError:
+        os.write(1, f'{file}: File not found. Exiting...'.encode())
+        
+    
+if sys.argv[1] == '-help':
+    print('To archive: c <file1> [file2] [output.tar]')
+    print('To unarchive: x < input.tar')
+
+elif sys.argv[1] == 'c':    
+    print('archiving files...')
+    files = sys.argv[2:-1]
+    output = sys.argv[-1]
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT)
+    c(files, fd)
+    print('files have been archived to {}'.format(sys.argv[-1]))
+
+elif sys.argv[1] == 'unarch':
+    print('extracting files...')
+    file = sys.argv[-1]
+    unarch(file)
+    print('files have been extracted')
+
+else:
+    print('unable to use archiver. Type -help to check syntax.')
