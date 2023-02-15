@@ -1,49 +1,44 @@
 #! user/bin/env python3
 import os, sys
 
-def frame_msg(message, size):
+def framed_write(data):
     '''
-    function: frame_msg()
-    Takes a string and converts to byte array with length prefixing
-    the general structure:<str len (8 bytes)> <str contents>
-    byte_array[0:8] = str len in bytes
-    byte_array[8:] = str contents
-    returns a byte-array with the encoded message
-    '''  
-    data = bytearray()
-    data += bytearray(size.to_bytes(8, 'big'))       # uses big-endian byte order
-    length = size.to_bytes(8, 'big')
-    print(f'byte size = {length}')
-    data += bytearray(message.encode())              # converts the message to bytes
+    function: framed_write()
+    input: data is a byte array
+       fdata[0:8] = data length in bytes
+       fdata[8:] = data contents
+    returns a byte-array
+    ''' 
+    fdata = bytearray()                              # byte-array for framed data
+    size = len(data)                                 # len of data as byte-array
+    
+    fdata += bytearray(size.to_bytes(8, 'big'))      # uses big-endian byte order
+    fdata += bytearray(data)                         # converts the message to bytes
+
+    return fdata
+
+
+def framed_read(fdata, fnum=1):
+    '''
+    function: framed_read()
+    input: Takes a framed msg, fdata, as a byte-array and extracts data where the
+    general structure is
+        fdata[0:8] = data length in bytes
+        fdata[8:] = data contents
+        fnum is number of framed pieces to read
+    returns an array: [data1, data2, ... , ]
+    '''    
+    if len(fdata) == 0:
+        return byte_array()
+    
+    data = []
+    
+    for i in range(fnum):                             # read fnum frames
+        size = int.from_bytes(fdata[0:8], 'big')      # get fdata size as bytes   
+        msg[i] = data[8:8+size].decode()              # get fdata contents as bytes
+        fdata = fdata[8+size:]                        # update fdata with the next slice
 
     return data
-
-
-def read_msg(data, num_metadata=0):
-    '''
-    function: read_msg()
-    Takes an array and extracts data where the
-    general structure is:<str len (8 bytes)> <actual string>
-    metadata:
-    (0) message
-    (1) <metadata> + message
-    (2) <metadata> + <metadata> + message
-    Essentially, metadata tells you how many 'pieces' of
-    the string there are. A filename (for instance) would
-    consist of: filename + contents
-    returns an array: [metadata, metadata, ... , message]
-    '''    
-    if len(data) == 0:
-        return ''
-    
-    msg = []
-    
-    for i in range(num_metadata+1):
-        size = int.from_bytes(data[0:8], 'big')       # get size as bytes   
-        msg[i] = data[8:8+size].decode()              # get message body as bytes
-        data = data[8+size:]                          # update data with the next slice
-
-    return msg
 
 
 def read_from_fd(fd, n=100):
@@ -64,7 +59,7 @@ def read_from_fd(fd, n=100):
         contents += buf
 
     print(f'contents reading from fd = {fd} are {contents.decode()}')    
-    return contents.decode()
+    return contents
 
 
 def c(files, ofd=1):
@@ -80,23 +75,23 @@ def c(files, ofd=1):
     
     for file in files:                                        # names of files to process
         try:
-            data = bytearray()
+            fdata = bytearray()
             ifd = os.open(file, os.O_RDONLY)                  # open file (read-only)
             print(f'opening file {file} with fd={ifd}')
 
             print(f'file length is {len(file.encode())}')
             print(f'file name is {file}')
             
-            fmetadata = frame_msg(file, len(file.encode()))   # frame filename
-            data += fmetadata                                 # add framed metadata (filename) to byte array
-            print(f'data is now {data}')
+            fmetadata = framed_write(file.encode())           # frame filename
+            fdata += fmetadata                                # add framed metadata (filename) to byte array
+            print(f'fdata is now {fdata}')
             
             contents = read_from_fd(ifd, 10)                  # read 10 bytes (at a time) from open fd
-            fcontents = frame_msg(contents, len(contents))    # frame contents from input fd
-            data += fcontents                                 # add framed contents to byte array
-            print(f'adding {data} to byte array')
+            fcontents = framed_write(contents)                # frame contents from input fd
+            fdata += fcontents                                # add framed contents to byte array
+            print(f'adding {fcontents.decode()} to byte array')
 
-            os.write(ofd, data)                               # send data to output fd
+            os.write(ofd, fdata)                              # send data to output fd
             os.close(ifd)                                     # done with input file descriptor
             print(f'closing file {file} with fd={ifd}')
         except:
@@ -106,8 +101,16 @@ def c(files, ofd=1):
 
 
     
-def unarch(file):
+def x(ifd=0, ofd=1):
+    '''
+    input: ifd is input file descriptor (default 0)
+        data from ifd should be framed data
+    output: ofd is output file descriptor (default 1)
+    '''
     try:
+
+
+
         arch_file = open(file, 'rb')                          # 'rb' = 'read binary'
         data = arch_file.read()
 
