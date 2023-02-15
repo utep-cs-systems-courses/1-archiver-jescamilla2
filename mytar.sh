@@ -59,7 +59,7 @@ def read_from_fd(fd, n=100):
     print(f'reading from fd = {fd}')
     while True: 
         buf = os.read(fd, n)
-        print(f'buffer\'s contents are {buf}')
+        # print(f'buffer\'s contents are {buf}')
         if not len(buf): break
         contents += buf
 
@@ -69,7 +69,7 @@ def read_from_fd(fd, n=100):
 
 def c(files, ofd=1):
     '''
-    name: c is the "create" function similar to tar's
+    name: c is the "create" function similar to tar\'s'
     input:
       files = array of files to be archived
       fd = file descriptor to write to. default is stdout
